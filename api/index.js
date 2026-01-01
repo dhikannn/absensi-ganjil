@@ -127,7 +127,6 @@ app.use((req, res, next) => {
     }
 });
 
-// Middleware: Validate token via main API
 const authenticateToken = (allowedRoles = []) => {
     return async (req, res, next) => {
         try {
@@ -136,7 +135,6 @@ const authenticateToken = (allowedRoles = []) => {
                 return res.status(401).json({ message: 'Akses ditolak. silakan login.' });
             }
 
-            // Call main API to validate token
             const response = await fetch(`${process.env.MAIN_API_URL}/api/validate-token`, {
                 headers: {
                     'Cookie': `token=${token}`
@@ -167,7 +165,6 @@ const authenticateToken = (allowedRoles = []) => {
     };
 };
 
-// Middleware: Check if NIM is odd (ganjil)
 const requireOddNIM = (req, res, next) => {
     const nim = req.user?.nim || req.body?.target_nim;
     if (!nim) {
@@ -181,7 +178,6 @@ const requireOddNIM = (req, res, next) => {
     next();
 };
 
-// Zod schemas
 const validate = (schema) => (req, res, next) => {
     try {
         schema.parse(req.body);
@@ -197,7 +193,6 @@ const sessionSchema = z.object({
     is_photo_required: z.boolean().optional().or(z.string())
 });
 
-// File upload setup
 const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
 
 const checkFileHeader = (buffer) => {
@@ -258,9 +253,6 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', type: 'ganjil' });
 });
 
-// ========== ATTENDANCE ENDPOINTS ==========
-
-// Create session
 app.post('/api/attendance/sessions', authenticateToken(['admin', 'sekretaris', 'dev']), validate(sessionSchema), async (req, res) => {
     try {
         const { title, description, is_photo_required } = req.body;
@@ -285,7 +277,6 @@ app.post('/api/attendance/sessions', authenticateToken(['admin', 'sekretaris', '
     }
 });
 
-// List sessions
 app.get('/api/attendance/sessions', authenticateToken(), async (req, res) => {
     try {
         const { data, error } = await supabase.from('attendance_sessions').select('*').order('created_at', { ascending: false });
@@ -296,7 +287,6 @@ app.get('/api/attendance/sessions', authenticateToken(), async (req, res) => {
     }
 });
 
-// Close session
 app.put('/api/attendance/close/:id', authenticateToken(['admin', 'sekretaris', 'dev']), async (req, res) => {
     try {
         const { error } = await supabase.from('attendance_sessions').update({ is_open: false }).eq('id', req.params.id);
@@ -307,7 +297,6 @@ app.put('/api/attendance/close/:id', authenticateToken(['admin', 'sekretaris', '
     }
 });
 
-// Submit attendance (ONLY ODD NIM)
 app.post('/api/attendance/submit', authenticateToken(), requireOddNIM, upload.single('image'), handleUploadError, verifyFileContent, async (req, res) => {
     try {
         const { session_id, user_name_input, status, reason } = req.body;
@@ -408,7 +397,6 @@ app.post('/api/attendance/submit', authenticateToken(), requireOddNIM, upload.si
     }
 });
 
-// Approve pending
 app.put('/api/attendance/approve/:record_id', authenticateToken(['admin', 'sekretaris', 'dev']), async (req, res) => {
     try {
         const { error } = await supabase.from('attendance_records').update({ status: 'Hadir' }).eq('id', req.params.record_id);
@@ -419,12 +407,10 @@ app.put('/api/attendance/approve/:record_id', authenticateToken(['admin', 'sekre
     }
 });
 
-// Manual attendance (admin only, must be odd NIM target)
 app.post('/api/attendance/manual', authenticateToken(['admin', 'sekretaris', 'dev']), async (req, res) => {
     try {
         const { session_id, target_nim, target_name, status } = req.body;
 
-        // Check if target NIM is odd
         const lastDigit = parseInt(target_nim.toString().slice(-1));
         if (lastDigit % 2 === 0) {
             return res.status(403).json({ message: 'API ini hanya untuk NIM ganjil.' });
@@ -443,7 +429,6 @@ app.post('/api/attendance/manual', authenticateToken(['admin', 'sekretaris', 'de
     }
 });
 
-// Get stats
 app.get('/api/attendance/stats/:session_id', authenticateToken(['admin', 'sekretaris', 'dev']), async (req, res) => {
     try {
         const { data, error } = await supabase.from('attendance_records').select('*').eq('session_id', req.params.session_id);
@@ -469,13 +454,11 @@ app.get('/api/attendance/stats/:session_id', authenticateToken(['admin', 'sekret
     }
 });
 
-// Error handler
 app.use((err, req, res, next) => {
     console.error('Server Error:', err);
     res.status(500).json({ message: 'Internal server error' });
 });
 
-// 404 handler
 app.use((req, res) => {
     res.status(404).json({ message: 'Endpoint tidak ditemukan' });
 });
