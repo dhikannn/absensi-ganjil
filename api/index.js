@@ -376,6 +376,25 @@ app.post('/api/gsheet/sync', authenticateToken(['admin', 'dev']), async (req, re
     }
 });
 
+app.get('/api/cron/sync-gsheet', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        const isVercelCron = req.headers['x-vercel-cron'] === '1';
+        if (!isVercelCron && process.env.CRON_SECRET) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+    }
+
+    try {
+        console.log('[Cron] GSheet sync triggered');
+        const result = await syncAllSessions(supabase, 'ganjil');
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[Cron] Sync error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.post('/api/attendance/submit', authenticateToken(), requireOddNIM, upload.single('image'), handleUploadError, verifyFileContent, async (req, res) => {
     try {
         const { session_id, user_name_input, status, reason } = req.body;
@@ -478,6 +497,8 @@ app.post('/api/attendance/submit', authenticateToken(), requireOddNIM, upload.si
         else if (finalStatus === 'Izin') msg = 'Permohonan Izin Tercatat';
 
         res.json({ message: msg });
+
+        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Post-submit sync error:', err));
     } catch (err) {
         console.error("Submit Error:", err);
         res.status(500).json({ message: 'Gagal mengirim data.' });
@@ -489,6 +510,7 @@ app.put('/api/attendance/approve/:record_id', authenticateToken(['admin', 'sekre
         const { error } = await supabase.from('attendance_records').update({ status: 'Hadir' }).eq('id', req.params.record_id);
         if (error) throw error;
         res.json({ message: 'Diverifikasi' });
+        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Post-approve sync error:', err));
     } catch (err) {
         res.status(500).json({ message: 'Gagal verifikasi' });
     }
@@ -511,6 +533,7 @@ app.post('/api/attendance/manual', authenticateToken(['admin', 'sekretaris', 'de
         if (error && error.code === '23505') return res.status(400).json({ message: 'Sudah absen' });
         if (error) throw error;
         res.json({ message: 'Done' });
+        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Post-manual sync error:', err));
     } catch (err) {
         res.status(500).json({ message: 'Gagal input' });
     }
@@ -553,17 +576,6 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
     console.log(`[GANJIL] Server running on port ${PORT}`);
-
-    const SYNC_INTERVAL = 5 * 60 * 1000;
-    setInterval(() => {
-        console.log('[GSheet] Starting scheduled sync...');
-        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Scheduled sync error:', err));
-    }, SYNC_INTERVAL);
-
-    setTimeout(() => {
-        console.log('[GSheet] Starting initial sync...');
-        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Initial sync error:', err));
-    }, 10000);
 });
 
 module.exports = app;
