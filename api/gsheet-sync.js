@@ -195,7 +195,7 @@ const deleteSessionSheet = async (sessionTitle) => {
     }
 };
 
-const syncAllSessions = async (supabase, nimType = 'ganjil') => {
+const syncAllSessions = async (supabase) => {
     const auth = getAuth();
     if (!auth) {
         console.log('[GSheet] Skipping sync - credentials not configured');
@@ -214,11 +214,6 @@ const syncAllSessions = async (supabase, nimType = 'ganjil') => {
             .from('users')
             .select('nim, name');
 
-        const filteredUsers = (users || []).filter(u => {
-            const lastDigit = parseInt(u.nim.toString().slice(-1));
-            return nimType === 'ganjil' ? lastDigit % 2 !== 0 : lastDigit % 2 === 0;
-        });
-
         const results = [];
         for (const session of sessions) {
             const { data: records } = await supabase
@@ -226,15 +221,10 @@ const syncAllSessions = async (supabase, nimType = 'ganjil') => {
                 .select('*')
                 .eq('session_id', session.id);
 
-            const filteredRecords = (records || []).filter(r => {
-                const lastDigit = parseInt(r.user_nim.toString().slice(-1));
-                return nimType === 'ganjil' ? lastDigit % 2 !== 0 : lastDigit % 2 === 0;
-            });
-
             const result = await syncSessionToSheet(
-                `${session.title} (${nimType.toUpperCase()})`,
-                filteredRecords,
-                filteredUsers
+                session.title,
+                records || [],
+                users || []
             );
 
             results.push({
@@ -243,7 +233,7 @@ const syncAllSessions = async (supabase, nimType = 'ganjil') => {
             });
         }
 
-        console.log(`[GSheet] Sync complete for ${nimType}: ${results.length} sessions`);
+        console.log(`[GSheet] Sync complete: ${results.length} sessions`);
         return { success: true, results };
     } catch (error) {
         console.error('[GSheet] Sync all error:', error.message);
