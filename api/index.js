@@ -10,6 +10,7 @@ const sharp = require('sharp');
 const xss = require('xss');
 const { z } = require('zod');
 const { createClient } = require('@supabase/supabase-js');
+const { syncAllSessions, deleteSessionSheet } = require('./gsheet-sync');
 
 const app = express();
 
@@ -346,6 +347,35 @@ app.put('/api/attendance/close/:id', authenticateToken(['admin', 'sekretaris', '
     }
 });
 
+app.delete('/api/attendance/sessions/:id', authenticateToken(['admin', 'sekretaris', 'dev']), async (req, res) => {
+    try {
+        const { data: session } = await supabase.from('attendance_sessions').select('title').eq('id', req.params.id).single();
+
+        await supabase.from('attendance_records').delete().eq('session_id', req.params.id);
+
+        const { error } = await supabase.from('attendance_sessions').delete().eq('id', req.params.id);
+        if (error) throw error;
+
+        if (session?.title) {
+            deleteSessionSheet(`${session.title} (GANJIL)`).catch(err => console.error('[GSheet] Delete tab error:', err));
+        }
+
+        res.json({ message: 'Sesi dihapus' });
+    } catch (err) {
+        console.error('Delete session error:', err);
+        res.status(500).json({ message: 'Gagal menghapus sesi' });
+    }
+});
+
+app.post('/api/gsheet/sync', authenticateToken(['admin', 'dev']), async (req, res) => {
+    try {
+        const result = await syncAllSessions(supabase, 'ganjil');
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Sync failed', error: err.message });
+    }
+});
+
 app.post('/api/attendance/submit', authenticateToken(), requireOddNIM, upload.single('image'), handleUploadError, verifyFileContent, async (req, res) => {
     try {
         const { session_id, user_name_input, status, reason } = req.body;
@@ -523,6 +553,17 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
     console.log(`[GANJIL] Server running on port ${PORT}`);
+
+    const SYNC_INTERVAL = 5 * 60 * 1000;
+    setInterval(() => {
+        console.log('[GSheet] Starting scheduled sync...');
+        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Scheduled sync error:', err));
+    }, SYNC_INTERVAL);
+
+    setTimeout(() => {
+        console.log('[GSheet] Starting initial sync...');
+        syncAllSessions(supabase, 'ganjil').catch(err => console.error('[GSheet] Initial sync error:', err));
+    }, 10000);
 });
 
 module.exports = app;
